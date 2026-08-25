@@ -27,6 +27,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-env` | Compare a .env against its template without printing any value |
 | `sk-slug` | Turn text into a URL slug, transliterating Cyrillic |
 | `sk-watch` | Re-run a command when files change, no watcher dependency |
+| `sk-json` | Format JSON or read one path out of it, no jq required |
 
 ## Design rules
 
