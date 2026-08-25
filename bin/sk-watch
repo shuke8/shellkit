@@ -1,0 +1,80 @@
+#!/usr/bin/env node
+// Re-run a command when files change, without a watcher dependency.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.cache']);
+const DEBOUNCE_MS = 120;
+
+function usage() {
+  console.log(`sk-watch — re-run a command when files change
+
+Usage:
+  sk-watch [--dir <path>] [--ext <list>] -- <command> [args...]
+
+Options:
+  --dir <path>  directory to watch (default .)
+  --ext <list>  comma-separated extensions, e.g. js,css (default: all)
+
+Example:
+  sk-watch --dir src --ext js,css -- npm test`);
+}
+
+const argv = process.argv.slice(2);
+const separator = argv.indexOf('--');
+if (separator === -1 || separator === argv.length - 1) {
+  usage();
+  process.exit(argv.includes('--help') || argv.includes('-h') ? 0 : 1);
+}
+
+const flags = argv.slice(0, separator);
+const [command, ...commandArgs] = argv.slice(separator + 1);
+
+function flag(name, fallback) {
+  const index = flags.indexOf(name);
+  return index === -1 ? fallback : flags[index + 1];
+}
+
+const dir = path.resolve(flag('--dir', '.'));
+const extensions = flag('--ext', null)?.split(',').map((ext) => `.${ext.replace(/^\./, '')}`) ?? null;
+
+let child = null;
+let timer = null;
+
+function run() {
+  // Kill the previous run before starting a new one, otherwise two servers race
+  // for the same port and the second one dies with EADDRINUSE.
+  if (child && child.exitCode === null) child.kill('SIGTERM');
+  console.log(`\n$ ${command} ${commandArgs.join(' ')}`);
+  child = spawn(command, commandArgs, { stdio: 'inherit' });
+  child.on('error', (err) => console.error(`cannot run ${command}: ${err.message}`));
+}
+
+function schedule(file) {
+  if (extensions && !extensions.includes(path.extname(file))) return;
+  // Editors write a file in several steps; one save should mean one run.
+  clearTimeout(timer);
+  timer = setTimeout(run, DEBOUNCE_MS);
+}
+
+function watch(target) {
+  fs.watch(target, (event, file) => {
+    if (file) schedule(file);
+  });
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    if (!entry.isDirectory() || SKIP.has(entry.name) || entry.name.startsWith('.')) continue;
+    watch(path.join(target, entry.name));
+  }
+}
+
+watch(dir);
+console.log(`watching ${dir}${extensions ? ` for ${extensions.join(', ')}` : ''} — ctrl-c to stop`);
+run();
+
+process.on('SIGINT', () => {
+  if (child && child.exitCode === null) child.kill('SIGTERM');
+  process.exit(0);
+});
