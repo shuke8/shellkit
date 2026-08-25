@@ -22,6 +22,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-tree` | Print a directory tree, skipping node_modules and build output |
 | `sk-headers` | Audit a URL for the security response headers a live site should send |
 | `sk-links` | Report dead links in local HTML, optionally checking external URLs too |
+| `sk-size` | Report raw, gzip and brotli size per file, with an optional budget |
 
 ## Design rules
 
