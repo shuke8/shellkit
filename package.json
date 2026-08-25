@@ -1,0 +1,29 @@
+{
+  "name": "shellkit",
+  "version": "0.1.0",
+  "description": "Small, dependency-free command-line utilities for everyday web development",
+  "license": "MIT",
+  "repository": "github:shuke8/shellkit",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test 'test/*.test.js'",
+    "lint": "for f in bin/sk-*; do node --check \"$f\" || exit 1; done"
+  },
+  "bin": {
+    "sk-env": "bin/sk-env",
+    "sk-headers": "bin/sk-headers",
+    "sk-imgcheck": "bin/sk-imgcheck",
+    "sk-json": "bin/sk-json",
+    "sk-links": "bin/sk-links",
+    "sk-port": "bin/sk-port",
+    "sk-serve": "bin/sk-serve",
+    "sk-size": "bin/sk-size",
+    "sk-slug": "bin/sk-slug",
+    "sk-timing": "bin/sk-timing",
+    "sk-tree": "bin/sk-tree",
+    "sk-watch": "bin/sk-watch"
+  },
+  "files": ["bin", "README.md", "LICENSE"]
+}

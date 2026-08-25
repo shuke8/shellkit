@@ -30,6 +30,13 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-json` | Format JSON or read one path out of it, no jq required |
 | `sk-imgcheck` | Report image dimensions from the file header and flag oversized assets |
 
+## Running the tests
+
+```sh
+npm test        # node:test, no dependencies to install
+npm run lint    # syntax-check every tool
+```
+
 ## Design rules
 
 1. One file per tool. No shared runtime, no build step.
