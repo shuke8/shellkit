@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+// Check a URL for the security response headers a production site should send.
+'use strict';
+
+const https = require('https');
+const http = require('http');
+
+const CHECKS = [
+  {
+    header: 'strict-transport-security',
+    why: 'forces HTTPS on every later visit',
+    ok: (value) => /max-age=\d+/.test(value) && Number(value.match(/max-age=(\d+)/)[1]) >= 15552000,
+    hint: 'max-age=31536000; includeSubDomains',
+  },
+  {
+    header: 'content-security-policy',
+    why: 'limits where scripts and styles may load from',
+    ok: (value) => value.length > 0 && !/unsafe-inline.*script-src|script-src[^;]*unsafe-inline/.test(value),
+    hint: "default-src 'self'; script-src 'self'",
+  },
+  {
+    header: 'x-content-type-options',
+    why: 'stops MIME sniffing turning an upload into a script',
+    ok: (value) => value.toLowerCase() === 'nosniff',
+    hint: 'nosniff',
+  },
+  {
+    header: 'referrer-policy',
+    why: 'keeps full URLs out of third-party referrers',
+    ok: (value) => value.length > 0 && value !== 'unsafe-url',
+    hint: 'strict-origin-when-cross-origin',
+  },
+  {
+    header: 'x-frame-options',
+    why: 'blocks clickjacking through an iframe',
+    ok: (value) => /^(deny|sameorigin)$/i.test(value),
+    hint: 'DENY (or a CSP frame-ancestors directive)',
+  },
+];
+
+function usage() {
+  console.log(`sk-headers — audit a URL for security response headers
+
+Usage:
+  sk-headers <url>
+
+Exits non-zero when a header is missing or weak, so it composes inside CI.
+
+Example:
+  sk-headers https://example.com`);
+}
+
+const target = process.argv[2];
+if (!target || target === '--help' || target === '-h') {
+  usage();
+  process.exit(target ? 0 : 1);
+}
+
+let url;
+try {
+  url = new URL(target);
+} catch {
+  console.error(`not a URL: ${target}`);
+  process.exit(1);
+}
+
+const client = url.protocol === 'https:' ? https : http;
+
+const request = client.request(url, { method: 'HEAD' }, (res) => {
+  // A HEAD that redirects tells us nothing about the final document's headers.
+  if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+    console.error(`${res.statusCode} redirect to ${res.headers.location} — check that URL instead`);
+    process.exit(1);
+  }
+
+  let failures = 0;
+  for (const check of CHECKS) {
+    const value = res.headers[check.header];
+    if (value === undefined) {
+      console.log(`missing  ${check.header}\n         ${check.why}\n         suggested: ${check.hint}`);
+      failures += 1;
+    } else if (!check.ok(String(value))) {
+      console.log(`weak     ${check.header}: ${value}\n         suggested: ${check.hint}`);
+      failures += 1;
+    } else {
+      console.log(`ok       ${check.header}`);
+    }
+  }
+
+  console.log(`\n${CHECKS.length - failures}/${CHECKS.length} passed`);
+  process.exit(failures === 0 ? 0 : 1);
+});
+
+request.on('error', (err) => {
+  console.error(`request failed: ${err.message}`);
+  process.exit(1);
+});
+
+request.setTimeout(10000, () => {
+  request.destroy();
+  console.error('request timed out after 10s');
+  process.exit(1);
+});
+
+request.end();
