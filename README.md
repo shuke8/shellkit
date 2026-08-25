@@ -1,5 +1,7 @@
 # shellkit
 
+[![ci](https://github.com/shuke8/shellkit/actions/workflows/ci.yml/badge.svg)](https://github.com/shuke8/shellkit/actions/workflows/ci.yml)
+
 Small, dependency-free command-line utilities for everyday web development.
 
 Every tool is a single POSIX shell or Node script with no `node_modules`, no install
@@ -29,6 +31,18 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-watch` | Re-run a command when files change, no watcher dependency |
 | `sk-json` | Format JSON or read one path out of it, no jq required |
 | `sk-imgcheck` | Report image dimensions from the file header and flag oversized assets |
+
+## In a deploy check
+
+The tools exit non-zero on failure, so a release gate is a few lines of shell:
+
+```sh
+sk-size dist --limit 250        # bundle budget
+sk-imgcheck dist --max-width 2400 --max-kb 300
+sk-links dist                   # dead internal links
+sk-env --env .env.production    # every documented key is set
+sk-headers https://example.com  # security headers on the live site
+```
 
 ## Running the tests
 
