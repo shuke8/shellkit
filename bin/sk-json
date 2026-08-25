@@ -1,0 +1,70 @@
+#!/usr/bin/env node
+// Format JSON, or pull one path out of it, without installing jq.
+'use strict';
+
+function usage() {
+  console.log(`sk-json — format JSON or read a path out of it
+
+Usage:
+  sk-json [path] [--compact]
+  cat file.json | sk-json data.items.0.name
+
+Options:
+  --compact  print on one line instead of indented
+
+A path is dot-separated; array indices are plain numbers. Missing paths exit
+non-zero so a shell script can branch on them.
+
+Example:
+  curl -s https://api.github.com/repos/shuke8/shellkit | sk-json stargazers_count`);
+}
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  usage();
+  process.exit(0);
+}
+
+const compact = argv.includes('--compact');
+const query = argv.find((arg) => !arg.startsWith('--'));
+
+if (process.stdin.isTTY) {
+  usage();
+  process.exit(1);
+}
+
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { input += chunk; });
+process.stdin.on('end', () => {
+  let value;
+  try {
+    value = JSON.parse(input);
+  } catch (err) {
+    // Point at the offending byte — "Unexpected token }" alone is not enough to
+    // find the problem in a 4000-line response.
+    const position = Number(err.message.match(/position (\d+)/)?.[1]);
+    const context = Number.isInteger(position)
+      ? `\n  near: ${JSON.stringify(input.slice(Math.max(0, position - 40), position + 40))}`
+      : '';
+    console.error(`invalid JSON: ${err.message}${context}`);
+    process.exit(1);
+  }
+
+  if (query) {
+    for (const key of query.split('.')) {
+      if (value === null || value === undefined) break;
+      value = value[key];
+    }
+    if (value === undefined) {
+      console.error(`no such path: ${query}`);
+      process.exit(1);
+    }
+  }
+
+  if (typeof value === 'string') {
+    console.log(value);
+  } else {
+    console.log(JSON.stringify(value, null, compact ? 0 : 2));
+  }
+});
