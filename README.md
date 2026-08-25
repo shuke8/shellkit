@@ -24,6 +24,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-links` | Report dead links in local HTML, optionally checking external URLs too |
 | `sk-size` | Report raw, gzip and brotli size per file, with an optional budget |
 | `sk-timing` | Break a request into DNS, connect, TLS, TTFB and download time |
+| `sk-env` | Compare a .env against its template without printing any value |
 
 ## Design rules
 
