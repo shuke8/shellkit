@@ -3,7 +3,7 @@
 'use strict';
 
 const CYRILLIC = {
-  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i',
   й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
   у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y',
   ь: '', э: 'e', ю: 'yu', я: 'ya', ў: 'o', қ: 'q', ғ: 'g', ҳ: 'h', і: 'i', ї: 'yi', є: 'ye',
@@ -23,6 +23,8 @@ Example:
   sk-slug "Доставка дверей — Москва"   # dostavka-dverey-moskva`);
 }
 
+module.exports = { slugify };
+
 function slugify(input) {
   return input
     .toLowerCase()
@@ -37,23 +39,24 @@ function slugify(input) {
     .replace(/^-+|-+$/g, '');
 }
 
-const args = process.argv.slice(2);
-if (args[0] === '--help' || args[0] === '-h') {
-  usage();
-  process.exit(0);
-}
-
-if (args.length) {
-  console.log(slugify(args.join(' ')));
-} else if (process.stdin.isTTY) {
-  usage();
-  process.exit(1);
-} else {
-  let input = '';
-  process.stdin.on('data', (chunk) => { input += chunk; });
-  process.stdin.on('end', () => {
-    for (const line of input.split('\n')) {
-      if (line.trim()) console.log(slugify(line));
-    }
-  });
+// Only parse argv when run directly; the test runner loads this as a module.
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  if (args[0] === '--help' || args[0] === '-h') {
+    usage();
+    process.exit(0);
+  } else if (args.length) {
+    console.log(slugify(args.join(' ')));
+  } else if (process.stdin.isTTY) {
+    usage();
+    process.exit(1);
+  } else {
+    let input = '';
+    process.stdin.on('data', (chunk) => { input += chunk; });
+    process.stdin.on('end', () => {
+      for (const line of input.split('\n')) {
+        if (line.trim()) console.log(slugify(line));
+      }
+    });
+  }
 }
