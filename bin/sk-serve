@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+// Static file server for the current directory. No dependencies.
+'use strict';
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
+};
+
+function usage() {
+  console.log(`sk-serve — static file server for the current directory
+
+Usage:
+  sk-serve [--port <n>] [--root <dir>]
+
+Example:
+  sk-serve --port 8080 --root dist`);
+}
+
+function parseArgs(argv) {
+  const options = { port: 3000, root: process.cwd() };
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === '--help' || argv[i] === '-h') return null;
+    if (argv[i] === '--port') options.port = Number(argv[++i]);
+    else if (argv[i] === '--root') options.root = path.resolve(argv[++i]);
+  }
+  return options;
+}
+
+const options = parseArgs(process.argv.slice(2));
+if (!options) {
+  usage();
+  process.exit(0);
+}
+
+// Resolve inside root only, so `../` in a URL cannot escape the served directory.
+function resolveInsideRoot(urlPath) {
+  const decoded = decodeURIComponent(urlPath.split('?')[0]);
+  const candidate = path.join(options.root, path.normalize(decoded));
+  if (candidate !== options.root && !candidate.startsWith(options.root + path.sep)) {
+    return null;
+  }
+  return candidate;
+}
+
+const server = http.createServer((req, res) => {
+  const target = resolveInsideRoot(req.url);
+  if (!target) {
+    res.writeHead(403).end('Forbidden');
+    return;
+  }
+
+  let file = target;
+  if (fs.existsSync(file) && fs.statSync(file).isDirectory()) {
+    file = path.join(file, 'index.html');
+  }
+
+  fs.readFile(file, (err, body) => {
+    if (err) {
+      res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+      return;
+    }
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.end(body);
+  });
+});
+
+server.listen(options.port, () => {
+  console.log(`serving ${options.root} on http://localhost:${options.port}`);
+});
