@@ -1,0 +1,92 @@
+#!/usr/bin/env node
+// Find a free TCP port, or report and free the process holding one.
+'use strict';
+
+const net = require('net');
+const { execFileSync } = require('child_process');
+
+function usage() {
+  console.log(`sk-port — find a free port, or see what is holding one
+
+Usage:
+  sk-port free [--from <n>]     print the first free port at or above <n> (default 3000)
+  sk-port who <n>               print the pid and command listening on <n>
+  sk-port kill <n>              terminate the process listening on <n>
+
+Example:
+  sk-port free --from 8080`);
+}
+
+function isFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => server.close(() => resolve(true)));
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+// lsof is present on macOS and most Linux images; a missing binary is reported
+// rather than swallowed, because "nothing is listening" and "cannot look" are
+// different answers.
+function listener(port) {
+  let out;
+  try {
+    out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' });
+  } catch (err) {
+    if (err.status === 1) return null;
+    throw new Error(`cannot inspect port ${port}: ${err.message}`);
+  }
+  const row = out.trim().split('\n')[1];
+  if (!row) return null;
+  const [command, pid] = row.split(/\s+/);
+  return { command, pid: Number(pid) };
+}
+
+async function main(argv) {
+  const [command, ...rest] = argv;
+
+  if (command === 'free') {
+    const fromIndex = rest.indexOf('--from');
+    let port = fromIndex === -1 ? 3000 : Number(rest[fromIndex + 1]);
+    while (port < 65536) {
+      if (await isFree(port)) {
+        console.log(port);
+        return 0;
+      }
+      port += 1;
+    }
+    console.error('no free port found');
+    return 1;
+  }
+
+  const port = Number(rest[0] ?? command === 'who' ? rest[0] : rest[0]);
+  if (command === 'who' || command === 'kill') {
+    if (!Number.isInteger(port)) {
+      console.error('a port number is required');
+      return 1;
+    }
+    const found = listener(port);
+    if (!found) {
+      console.error(`nothing is listening on ${port}`);
+      return 1;
+    }
+    if (command === 'who') {
+      console.log(`${found.pid}\t${found.command}`);
+      return 0;
+    }
+    process.kill(found.pid, 'SIGTERM');
+    console.log(`sent SIGTERM to ${found.pid} (${found.command})`);
+    return 0;
+  }
+
+  usage();
+  return command ? 1 : 0;
+}
+
+main(process.argv.slice(2))
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
