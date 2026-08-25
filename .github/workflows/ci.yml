@@ -23,7 +23,9 @@ jobs:
             node --check "$file"
           done
       - name: Run tests
-        run: node --test 'test/*.test.js'
+        # The glob is left unquoted on purpose: Node only expands globs itself
+        # from 21 onwards, so on 18 the shell has to do it.
+        run: node --test test/*.test.js
       - name: Smoke-test the CLIs
         run: |
           test "$(node bin/sk-slug 'Доставка дверей — Москва')" = "dostavka-dverey-moskva"
