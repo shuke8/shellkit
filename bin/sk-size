@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+// Report file sizes the way the network sees them: after gzip and brotli.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const zlib = require('zlib');
+
+const COMPRESSIBLE = new Set(['.js', '.mjs', '.css', '.html', '.json', '.svg', '.txt', '.xml']);
+
+function usage() {
+  console.log(`sk-size — report raw, gzip and brotli size per file
+
+Usage:
+  sk-size <file-or-dir> [--limit <kb>]
+
+Options:
+  --limit <kb>  exit non-zero if any file exceeds <kb> after gzip
+
+Example:
+  sk-size dist/assets --limit 200`);
+}
+
+const argv = process.argv.slice(2);
+if (!argv.length || argv[0] === '--help' || argv[0] === '-h') {
+  usage();
+  process.exit(argv.length ? 0 : 1);
+}
+
+const target = argv[0];
+const limitIndex = argv.indexOf('--limit');
+const limitBytes = limitIndex === -1 ? null : Number(argv[limitIndex + 1]) * 1024;
+
+if (limitIndex !== -1 && !Number.isFinite(limitBytes)) {
+  console.error('--limit takes a number of kilobytes');
+  process.exit(1);
+}
+
+function files(entry) {
+  const stat = fs.statSync(entry);
+  if (stat.isFile()) return [entry];
+  return fs.readdirSync(entry, { withFileTypes: true }).flatMap((child) => {
+    if (child.name === 'node_modules' || child.name.startsWith('.')) return [];
+    return files(path.join(entry, child.name));
+  });
+}
+
+function human(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+const rows = files(target)
+  .map((file) => {
+    const body = fs.readFileSync(file);
+    const compressible = COMPRESSIBLE.has(path.extname(file));
+    return {
+      file,
+      raw: body.length,
+      // An image or font is already compressed; running gzip over it reports a
+      // number no real server would produce.
+      gzip: compressible ? zlib.gzipSync(body, { level: 9 }).length : null,
+      brotli: compressible ? zlib.brotliCompressSync(body).length : null,
+    };
+  })
+  .sort((a, b) => (b.gzip ?? b.raw) - (a.gzip ?? a.raw));
+
+const width = Math.max(...rows.map((row) => row.file.length), 4);
+console.log(`${'file'.padEnd(width)}  ${'raw'.padStart(9)}  ${'gzip'.padStart(9)}  ${'brotli'.padStart(9)}`);
+
+let over = 0;
+for (const row of rows) {
+  const gzip = row.gzip === null ? '—' : human(row.gzip);
+  const brotli = row.brotli === null ? '—' : human(row.brotli);
+  const flag = limitBytes !== null && (row.gzip ?? row.raw) > limitBytes ? '  OVER' : '';
+  if (flag) over += 1;
+  console.log(`${row.file.padEnd(width)}  ${human(row.raw).padStart(9)}  ${gzip.padStart(9)}  ${brotli.padStart(9)}${flag}`);
+}
+
+const totalRaw = rows.reduce((sum, row) => sum + row.raw, 0);
+const totalGzip = rows.reduce((sum, row) => sum + (row.gzip ?? row.raw), 0);
+console.log(`\n${rows.length} files · ${human(totalRaw)} raw · ${human(totalGzip)} over the wire`);
+
+if (over) {
+  console.error(`${over} file(s) above the ${limitBytes / 1024} kB gzip limit`);
+  process.exit(1);
+}
