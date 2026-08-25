@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+// Measure where the time goes on a request: DNS, connect, TLS, TTFB, download.
+'use strict';
+
+const https = require('https');
+const http = require('http');
+
+function usage() {
+  console.log(`sk-timing — break a request down into DNS, connect, TLS, TTFB and download
+
+Usage:
+  sk-timing <url> [--runs <n>]
+
+Options:
+  --runs <n>  repeat n times and report the median (default 3)
+
+Example:
+  sk-timing https://example.com --runs 5`);
+}
+
+const argv = process.argv.slice(2);
+if (!argv.length || argv[0] === '--help' || argv[0] === '-h') {
+  usage();
+  process.exit(argv.length ? 0 : 1);
+}
+
+const runsIndex = argv.indexOf('--runs');
+const runs = runsIndex === -1 ? 3 : Number(argv[runsIndex + 1]);
+if (!Number.isInteger(runs) || runs < 1) {
+  console.error('--runs must be a positive integer');
+  process.exit(1);
+}
+
+let url;
+try {
+  url = new URL(argv[0]);
+} catch {
+  console.error(`not a URL: ${argv[0]}`);
+  process.exit(1);
+}
+
+function measure() {
+  return new Promise((resolve, reject) => {
+    const marks = { start: process.hrtime.bigint() };
+    const client = url.protocol === 'https:' ? https : http;
+    // A fresh agent per run, otherwise run 2 reuses run 1's socket and reports
+    // zero for DNS, connect and TLS.
+    const request = client.get(url, { agent: new client.Agent({ keepAlive: false }) }, (res) => {
+      let bytes = 0;
+      res.on('data', (chunk) => {
+        if (!marks.firstByte) marks.firstByte = process.hrtime.bigint();
+        bytes += chunk.length;
+      });
+      res.on('end', () => {
+        marks.end = process.hrtime.bigint();
+        resolve({ marks, bytes, status: res.statusCode });
+      });
+    });
+
+    request.on('socket', (socket) => {
+      socket.on('lookup', () => { marks.dns = process.hrtime.bigint(); });
+      socket.on('connect', () => { marks.connect = process.hrtime.bigint(); });
+      socket.on('secureConnect', () => { marks.tls = process.hrtime.bigint(); });
+    });
+
+    request.on('error', reject);
+    request.setTimeout(15000, () => {
+      request.destroy(new Error('timed out after 15s'));
+    });
+  });
+}
+
+const ms = (from, to) => (from && to ? Number(to - from) / 1e6 : null);
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+async function main() {
+  const samples = [];
+  let last;
+  for (let i = 0; i < runs; i += 1) {
+    last = await measure();
+    const { marks } = last;
+    samples.push({
+      dns: ms(marks.start, marks.dns),
+      connect: ms(marks.dns || marks.start, marks.connect),
+      tls: ms(marks.connect, marks.tls),
+      ttfb: ms(marks.tls || marks.connect, marks.firstByte),
+      download: ms(marks.firstByte, marks.end),
+      total: ms(marks.start, marks.end),
+    });
+  }
+
+  console.log(`${url.href} — HTTP ${last.status}, ${last.bytes} bytes, median of ${runs}\n`);
+  for (const phase of ['dns', 'connect', 'tls', 'ttfb', 'download', 'total']) {
+    const values = samples.map((sample) => sample[phase]).filter((value) => value !== null);
+    if (!values.length) continue;
+    console.log(`${phase.padEnd(9)} ${median(values).toFixed(1).padStart(8)} ms`);
+  }
+}
+
+main().catch((err) => {
+  console.error(`request failed: ${err.message}`);
+  process.exit(1);
+});

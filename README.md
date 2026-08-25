@@ -23,6 +23,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-headers` | Audit a URL for the security response headers a live site should send |
 | `sk-links` | Report dead links in local HTML, optionally checking external URLs too |
 | `sk-size` | Report raw, gzip and brotli size per file, with an optional budget |
+| `sk-timing` | Break a request into DNS, connect, TLS, TTFB and download time |
 
 ## Design rules
 
