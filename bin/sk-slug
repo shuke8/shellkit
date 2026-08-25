@@ -26,10 +26,13 @@ Example:
 function slugify(input) {
   return input
     .toLowerCase()
-    // Decompose so a combining accent can be dropped without a per-letter table.
+    // Transliterate before decomposing: NFKD splits й into и + breve and ё into
+    // е + diaeresis, so stripping combining marks first would silently turn
+    // "дверей" into "dverei" and "ёлка" into "elka".
+    .replace(/[\u0400-\u04ff]/g, (char) => (char in CYRILLIC ? CYRILLIC[char] : ''))
+    // Then decompose, so a Latin accent can be dropped without a per-letter table.
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[Ѐ-ӿ]/g, (char) => (char in CYRILLIC ? CYRILLIC[char] : ''))
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
