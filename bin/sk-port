@@ -60,10 +60,10 @@ async function main(argv) {
     return 1;
   }
 
-  const port = Number(rest[0] ?? command === 'who' ? rest[0] : rest[0]);
   if (command === 'who' || command === 'kill') {
-    if (!Number.isInteger(port)) {
-      console.error('a port number is required');
+    const port = Number(rest[0]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      console.error('a port number between 1 and 65535 is required');
       return 1;
     }
     const found = listener(port);
