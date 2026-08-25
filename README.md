@@ -18,6 +18,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | Tool | What it does |
 |------|--------------|
 | `sk-serve` | Static file server for the current directory, no dependencies |
+| `sk-port` | Find a free TCP port, or see and free the process holding one |
 
 ## Design rules
 
