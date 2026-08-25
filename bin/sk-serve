@@ -49,15 +49,26 @@ if (!options) {
   usage();
   process.exit(0);
 }
+options.realRoot = fs.realpathSync(options.root);
 
-// Resolve inside root only, so `../` in a URL cannot escape the served directory.
+// Resolve inside root only, so neither `../` nor a symlink can escape the served
+// directory. path.normalize is pure string work and never sees a symlink, so the
+// check has to run against the real on-disk path.
 function resolveInsideRoot(urlPath) {
   const decoded = decodeURIComponent(urlPath.split('?')[0]);
   const candidate = path.join(options.root, path.normalize(decoded));
-  if (candidate !== options.root && !candidate.startsWith(options.root + path.sep)) {
+  let real;
+  try {
+    real = fs.realpathSync(candidate);
+  } catch (err) {
+    // A path that does not exist cannot be traversal — let the reader answer 404.
+    if (err.code === 'ENOENT') return candidate;
     return null;
   }
-  return candidate;
+  if (real !== options.realRoot && !real.startsWith(options.realRoot + path.sep)) {
+    return null;
+  }
+  return real;
 }
 
 const server = http.createServer((req, res) => {
