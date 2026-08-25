@@ -56,9 +56,12 @@ function checkLocal({ file, link }) {
   const clean = link.split(/[?#]/)[0];
   const base = clean.startsWith('/') ? process.cwd() : path.dirname(file);
   const resolved = path.join(base, clean.startsWith('/') ? clean.slice(1) : clean);
-  const exists = fs.existsSync(resolved)
-    || (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.html')));
-  return exists ? null : { file, link, reason: 'file not found' };
+  if (!fs.existsSync(resolved)) return { file, link, reason: 'file not found' };
+  // A link to a directory only works if the server can serve an index for it.
+  if (fs.statSync(resolved).isDirectory() && !fs.existsSync(path.join(resolved, 'index.html'))) {
+    return { file, link, reason: 'directory has no index.html' };
+  }
+  return null;
 }
 
 function checkRemote({ file, link }) {
