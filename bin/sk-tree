@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+// Print a directory tree, skipping the directories nobody wants to read.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.cache']);
+
+function usage() {
+  console.log(`sk-tree — print a directory tree
+
+Usage:
+  sk-tree [dir] [--depth <n>] [--all]
+
+Options:
+  --depth <n>  stop after <n> levels (default 3)
+  --all        include node_modules, .git, dist and other skipped directories
+
+Example:
+  sk-tree src --depth 2`);
+}
+
+function parseArgs(argv) {
+  const options = { root: '.', depth: 3, all: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === '--help' || argv[i] === '-h') return null;
+    if (argv[i] === '--depth') options.depth = Number(argv[++i]);
+    else if (argv[i] === '--all') options.all = true;
+    else options.root = argv[i];
+  }
+  return options;
+}
+
+const options = parseArgs(process.argv.slice(2));
+if (!options) {
+  usage();
+  process.exit(0);
+}
+
+if (!Number.isInteger(options.depth) || options.depth < 1) {
+  console.error('--depth must be a positive integer');
+  process.exit(1);
+}
+
+let files = 0;
+let dirs = 0;
+
+function walk(dir, prefix, level) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    console.log(`${prefix}└── (unreadable: ${err.code})`);
+    return;
+  }
+
+  const visible = entries
+    .filter((entry) => !entry.name.startsWith('.') || options.all)
+    .filter((entry) => options.all || !SKIP.has(entry.name))
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+
+  visible.forEach((entry, index) => {
+    const last = index === visible.length - 1;
+    console.log(`${prefix}${last ? '└── ' : '├── '}${entry.name}${entry.isDirectory() ? '/' : ''}`);
+    if (entry.isDirectory()) {
+      dirs += 1;
+      if (level < options.depth) {
+        walk(path.join(dir, entry.name), `${prefix}${last ? '    ' : '│   '}`, level + 1);
+      }
+    } else {
+      files += 1;
+    }
+  });
+}
+
+console.log(path.resolve(options.root));
+walk(options.root, '', 1);
+console.log(`\n${dirs} directories, ${files} files`);

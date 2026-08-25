@@ -19,6 +19,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 |------|--------------|
 | `sk-serve` | Static file server for the current directory, no dependencies |
 | `sk-port` | Find a free TCP port, or see and free the process holding one |
+| `sk-tree` | Print a directory tree, skipping node_modules and build output |
 
 ## Design rules
 
