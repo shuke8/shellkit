@@ -23,18 +23,23 @@ function usage() {
   console.log(`sk-serve — static file server for the current directory
 
 Usage:
-  sk-serve [--port <n>] [--root <dir>]
+  sk-serve [--port <n>] [--root <dir>] [--spa]
+
+Options:
+  --spa   serve index.html for unknown navigation requests, so History API
+          routes survive a page reload
 
 Example:
-  sk-serve --port 8080 --root dist`);
+  sk-serve --port 8080 --root dist --spa`);
 }
 
 function parseArgs(argv) {
-  const options = { port: 3000, root: process.cwd() };
+  const options = { port: 3000, root: process.cwd(), spa: false };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--help' || argv[i] === '-h') return null;
     if (argv[i] === '--port') options.port = Number(argv[++i]);
     else if (argv[i] === '--root') options.root = path.resolve(argv[++i]);
+    else if (argv[i] === '--spa') options.spa = true;
   }
   return options;
 }
@@ -69,7 +74,21 @@ const server = http.createServer((req, res) => {
 
   fs.readFile(file, (err, body) => {
     if (err) {
-      res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+      // Only navigations fall back to the shell. A missing .js served as HTML is a
+      // far worse failure than an honest 404.
+      const wantsHtml = (req.headers.accept || '').includes('text/html');
+      if (!options.spa || !wantsHtml) {
+        res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+        return;
+      }
+      fs.readFile(path.join(options.root, 'index.html'), (shellErr, shell) => {
+        if (shellErr) {
+          res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(shell);
+      });
       return;
     }
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
