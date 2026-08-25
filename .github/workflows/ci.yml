@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 18 is the oldest release the tools claim to support; 22 is current LTS.
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax-check every tool
+        run: |
+          for file in bin/sk-*; do
+            node --check "$file"
+          done
+      - name: Run tests
+        run: node --test 'test/*.test.js'
+      - name: Smoke-test the CLIs
+        run: |
+          test "$(node bin/sk-slug 'Доставка дверей — Москва')" = "dostavka-dverey-moskva"
+          echo '{"a":{"b":"hit"}}' | node bin/sk-json a.b | grep -qx hit
+          node bin/sk-tree bin --depth 1 > /dev/null
+          node bin/sk-size bin > /dev/null
