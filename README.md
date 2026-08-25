@@ -25,6 +25,7 @@ export PATH="$PWD/shellkit/bin:$PATH"
 | `sk-size` | Report raw, gzip and brotli size per file, with an optional budget |
 | `sk-timing` | Break a request into DNS, connect, TLS, TTFB and download time |
 | `sk-env` | Compare a .env against its template without printing any value |
+| `sk-slug` | Turn text into a URL slug, transliterating Cyrillic |
 
 ## Design rules
 
