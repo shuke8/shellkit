@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+// Find dead links in local HTML files, without rendering them.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const http = require('http');
+
+const ATTRIBUTE = /(?:href|src)\s*=\s*["']([^"']+)["']/gi;
+const CONCURRENCY = 8;
+
+function usage() {
+  console.log(`sk-links — report dead links in local HTML files
+
+Usage:
+  sk-links <file-or-dir> [--external]
+
+Options:
+  --external  also request http(s) links (off by default, it is slow and noisy)
+
+Example:
+  sk-links dist --external`);
+}
+
+const [target, ...flags] = process.argv.slice(2);
+if (!target || target === '--help' || target === '-h') {
+  usage();
+  process.exit(target ? 0 : 1);
+}
+const checkExternal = flags.includes('--external');
+
+function htmlFiles(entry) {
+  const stat = fs.statSync(entry);
+  if (stat.isFile()) return entry.endsWith('.html') ? [entry] : [];
+  return fs.readdirSync(entry, { withFileTypes: true }).flatMap((child) => {
+    if (child.name === 'node_modules' || child.name.startsWith('.')) return [];
+    return htmlFiles(path.join(entry, child.name));
+  });
+}
+
+function collect(file) {
+  const html = fs.readFileSync(file, 'utf8');
+  const links = new Set();
+  let match;
+  while ((match = ATTRIBUTE.exec(html)) !== null) {
+    const value = match[1].trim();
+    // Fragments, data URIs and protocol handlers are not files to resolve.
+    if (!value || value.startsWith('#') || /^(data|mailto|tel|javascript):/i.test(value)) continue;
+    links.add(value);
+  }
+  return [...links].map((link) => ({ file, link }));
+}
+
+function checkLocal({ file, link }) {
+  const clean = link.split(/[?#]/)[0];
+  const base = clean.startsWith('/') ? process.cwd() : path.dirname(file);
+  const resolved = path.join(base, clean.startsWith('/') ? clean.slice(1) : clean);
+  const exists = fs.existsSync(resolved)
+    || (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.html')));
+  return exists ? null : { file, link, reason: 'file not found' };
+}
+
+function checkRemote({ file, link }) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL(link);
+    } catch {
+      resolve({ file, link, reason: 'malformed URL' });
+      return;
+    }
+    const client = url.protocol === 'https:' ? https : http;
+    const request = client.request(url, { method: 'HEAD' }, (res) => {
+      resolve(res.statusCode >= 400 ? { file, link, reason: `HTTP ${res.statusCode}` } : null);
+    });
+    request.on('error', (err) => resolve({ file, link, reason: err.code || err.message }));
+    request.setTimeout(8000, () => {
+      request.destroy();
+      resolve({ file, link, reason: 'timeout' });
+    });
+    request.end();
+  });
+}
+
+async function main() {
+  const all = htmlFiles(target).flatMap(collect);
+  const remote = all.filter(({ link }) => /^https?:\/\//i.test(link));
+  const local = all.filter(({ link }) => !/^https?:\/\//i.test(link) && !link.startsWith('//'));
+
+  const broken = local.map(checkLocal).filter(Boolean);
+
+  if (checkExternal) {
+    for (let i = 0; i < remote.length; i += CONCURRENCY) {
+      const batch = await Promise.all(remote.slice(i, i + CONCURRENCY).map(checkRemote));
+      broken.push(...batch.filter(Boolean));
+    }
+  }
+
+  for (const item of broken) {
+    console.log(`${item.file}\n  ${item.link} — ${item.reason}`);
+  }
+  const checked = local.length + (checkExternal ? remote.length : 0);
+  console.log(`\n${broken.length} broken of ${checked} checked${checkExternal ? '' : ` (${remote.length} external skipped)`}`);
+  process.exit(broken.length === 0 ? 0 : 1);
+}
+
+main().catch((err) => {
+  console.error(err.message);
+  process.exit(1);
+});
