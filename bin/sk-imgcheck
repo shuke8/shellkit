@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// Read image dimensions straight from the file header — no image library.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+function usage() {
+  console.log(`sk-imgcheck — report image dimensions and flag oversized files
+
+Usage:
+  sk-imgcheck <file-or-dir> [--max-width <px>] [--max-kb <n>]
+
+Options:
+  --max-width <px>  flag images wider than this (e.g. 2x your largest layout slot)
+  --max-kb <n>      flag files heavier than this
+
+Reads PNG, JPEG, GIF and WebP headers directly, so no image library is needed.
+
+Example:
+  sk-imgcheck public/images --max-width 2400 --max-kb 300`);
+}
+
+const argv = process.argv.slice(2);
+if (!argv.length || argv[0] === '--help' || argv[0] === '-h') {
+  usage();
+  process.exit(argv.length ? 0 : 1);
+}
+
+const target = argv[0];
+const numberFlag = (name) => {
+  const index = argv.indexOf(name);
+  return index === -1 ? null : Number(argv[index + 1]);
+};
+const maxWidth = numberFlag('--max-width');
+const maxKb = numberFlag('--max-kb');
+
+function png(buffer) {
+  if (buffer.readUInt32BE(0) !== 0x89504e47) return null;
+  return { format: 'png', width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+function gif(buffer) {
+  if (buffer.toString('ascii', 0, 3) !== 'GIF') return null;
+  return { format: 'gif', width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+}
+
+function webp(buffer) {
+  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') return null;
+  const kind = buffer.toString('ascii', 12, 16);
+  if (kind === 'VP8X') {
+    return {
+      format: 'webp',
+      width: buffer.readUIntLE(24, 3) + 1,
+      height: buffer.readUIntLE(27, 3) + 1,
+    };
+  }
+  if (kind === 'VP8 ') {
+    return { format: 'webp', width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff };
+  }
+  if (kind === 'VP8L') {
+    const bits = buffer.readUInt32LE(21);
+    return { format: 'webp', width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+  }
+  return { format: 'webp', width: null, height: null };
+}
+
+// JPEG has no fixed header offset: walk the segment chain to the frame marker.
+function jpeg(buffer) {
+  if (buffer.readUInt16BE(0) !== 0xffd8) return null;
+  let offset = 2;
+  while (offset < buffer.length - 9) {
+    if (buffer[offset] !== 0xff) { offset += 1; continue; }
+    const marker = buffer[offset + 1];
+    const size = buffer.readUInt16BE(offset + 2);
+    // SOF0..SOF15, skipping the DHT/JPG/DAC markers that share the range.
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { format: 'jpeg', height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + size;
+  }
+  return { format: 'jpeg', width: null, height: null };
+}
+
+function dimensions(file) {
+  const buffer = fs.readFileSync(file);
+  if (buffer.length < 32) return null;
+  return png(buffer) || gif(buffer) || webp(buffer) || jpeg(buffer);
+}
+
+function files(entry) {
+  const stat = fs.statSync(entry);
+  if (stat.isFile()) return [entry];
+  return fs.readdirSync(entry, { withFileTypes: true }).flatMap((child) => {
+    if (child.name === 'node_modules' || child.name.startsWith('.')) return [];
+    return files(path.join(entry, child.name));
+  });
+}
+
+let flagged = 0;
+const images = files(target).filter((file) => /\.(png|jpe?g|gif|webp)$/i.test(file));
+
+for (const file of images) {
+  const info = dimensions(file);
+  const kb = fs.statSync(file).size / 1024;
+  if (!info) {
+    console.log(`${file}\n  unreadable header — truncated or not really an image`);
+    flagged += 1;
+    continue;
+  }
+  const reasons = [];
+  if (maxWidth && info.width > maxWidth) reasons.push(`${info.width}px wide (max ${maxWidth})`);
+  if (maxKb && kb > maxKb) reasons.push(`${kb.toFixed(0)} kB (max ${maxKb})`);
+  const size = info.width ? `${info.width}×${info.height}` : 'unknown size';
+  console.log(`${reasons.length ? 'FLAG' : 'ok  '}  ${file}  ${info.format} ${size} ${kb.toFixed(0)} kB`);
+  if (reasons.length) {
+    console.log(`      ${reasons.join(', ')}`);
+    flagged += 1;
+  }
+}
+
+console.log(`\n${images.length} images · ${flagged} flagged`);
+process.exit(flagged ? 1 : 0);
